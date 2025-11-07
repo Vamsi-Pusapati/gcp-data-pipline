@@ -17,7 +17,6 @@ This project implements a complete end-to-end, automated data pipeline with AI c
 
 ```mermaid
 graph TB
-    %% Top-level GCP project boundary
     subgraph GCP_Project["GCP Project: gcp-project-deliverable"]
         subgraph Networking["VPC: medicaid-vpc (us-central1)"]
             Subnet1["Subnet: data-pipeline-subnet"]
@@ -40,7 +39,7 @@ graph TB
 
         subgraph Messaging["Pub/Sub"]
             TopicRaw[("Topic: gcs-raw-files")]
-            DLQ[("Subscription DLQ (optional)")]
+            DLQ[("DLQ Subscription (optional)")]
         end
 
         subgraph IngestionCompute["Serverless Ingestion"]
@@ -48,10 +47,8 @@ graph TB
         end
 
         subgraph BigQueryLayer["BigQuery"]
-            BQDatasetStage["Dataset: medicaid_staging"]
-            BQTableStage[("Table: nadac_drugs")]
-            BQDatasetEnriched["Dataset: medicaid_enriched"]
-            BQTableEnriched[("Table: nadac_drugs_enriched")]
+            BQTableStage[("medicaid_staging.nadac_drugs")]
+            BQTableEnriched[("medicaid_enriched.nadac_drugs_enriched")]
         end
 
         subgraph DataprocLayer["Dataproc (Ephemeral Cluster)"]
@@ -59,15 +56,14 @@ graph TB
         end
 
         subgraph GKECluster["GKE Cluster: medicaid-dashboard-cluster"]
-            GKENodePool["Node Pool: default (e2-standard-2)"]
             StreamlitDeploy["Deployment: streamlit-dashboard"]
             StreamlitSvc["Service: LoadBalancer"]
         end
 
         subgraph VertexAILayer["Vertex AI"]
             Embeddings["Embedding Model<br/>text-embedding-gecko"]
-            LLM["LLM<br/>Gemini Pro"]
-            VectorIndex["FAISS Index (in memory / disk)"]
+            VectorIndex["FAISS Index (in pod / disk)"]
+            LLM["Gemini Pro API"]
         end
 
         subgraph Observability["Logging & Monitoring"]
@@ -76,34 +72,28 @@ graph TB
         end
 
         subgraph IAM["IAM / Security"]
-            SA_Composer["Service Account: composer-sa"]
-            SA_CloudRun["Service Account: cloudrun-ingest-sa"]
-            SA_Dataproc["Service Account: dataproc-job-sa"]
-            SA_GKE["Workload Identity KSA<br/>dashboard-ksa → GCP SA"]
+            SA_Pipeline["Single Service Account:<br/>data-pipeline-sa<br/>(WI binding for GKE, Cloud Run, Composer, Dataproc)"]
         end
 
-        %% Flows
         ComposerSched -->|REST API Call| MedicaidAPI[("External Medicaid API")]
         ComposerSched -->|Write JSON| GCSRaw
-        GCSRaw -->|Object Finalize Event| TopicRaw
-        TopicRaw --> CloudRunFn
+        GCSRaw -->|Object Finalize| TopicRaw --> CloudRunFn
         CloudRunFn -->|Read JSON| GCSRaw
-        CloudRunFn -->|Validate & Insert| BQTableStage
-        CloudRunFn -->|Move File| GCSProcessed
+        CloudRunFn -->|Load Rows| BQTableStage
+        CloudRunFn -->|Archive File| GCSProcessed
         ComposerEnrich -->|Trigger PySpark| DataprocJob
         BQTableStage --> DataprocJob -->|Write Enriched| BQTableEnriched
         StreamlitDeploy -->|Query| BQTableEnriched
-        BQTableEnriched -->|Generate Embeddings| Embeddings --> VectorIndex
-        StreamlitDeploy -->|RAG Query| VectorIndex --> LLM --> StreamlitDeploy
+        BQTableEnriched -->|Embeddings| Embeddings --> VectorIndex -->|Context| LLM --> StreamlitDeploy
 
-        %% Security associations
-        SA_CloudRun --> CloudRunFn
-        SA_Composer --> ComposerSched
-        SA_Composer --> ComposerEnrich
-        SA_Dataproc --> DataprocJob
-        SA_GKE --> StreamlitDeploy
+        %% Single SA permissions fan-out
+        SA_Pipeline --> ComposerSched
+        SA_Pipeline --> ComposerEnrich
+        SA_Pipeline --> CloudRunFn
+        SA_Pipeline --> DataprocJob
+        SA_Pipeline --> StreamlitDeploy
 
-        %% Observability taps
+        %% Observability
         CloudRunFn --> CloudLogs
         DataprocJob --> CloudLogs
         StreamlitDeploy --> CloudLogs
@@ -117,24 +107,20 @@ graph TB
 
 ASCII Fallback (Physical Overview):
 ```
-[End Users] -> [HTTPS LB / GKE Service] -> [Streamlit Pods (GKE, Workload Identity)] -> (Queries) -> [BigQuery Enriched]
-[Composer Extraction DAG] -> [Medicaid API] -> [GCS raw/] -> (Finalize) -> [Pub/Sub Topic] -> [Cloud Run Function] -> [BigQuery Staging] -> [Move file -> GCS processed/]
-[Composer Enrichment DAG] -> [Dataproc PySpark Job (ephemeral cluster)] -> [BigQuery Enriched]
-[BigQuery Enriched] -> [Vertex AI Embeddings] -> [FAISS Index] -> [Gemini Pro] -> [Streamlit Chatbot]
-Artifacts: [Artifact Registry Images] consumed by Cloud Run & GKE
-Security: Service Accounts + Workload Identity, IAM scoped per layer
-Observability: Cloud Logging + Monitoring for Cloud Run, Dataproc, GKE
+[End Users] -> [GKE LB Service] -> [Streamlit Pods] -> [BigQuery Enriched]
+Extraction DAG -> Medicaid API -> GCS raw/ -> Pub/Sub -> Cloud Run -> BigQuery Staging -> GCS processed/
+Enrichment DAG -> Dataproc PySpark -> BigQuery Enriched
+BigQuery Enriched -> Embeddings -> FAISS -> Gemini Pro -> Streamlit Chatbot
+Single Service Account (medicaid-pipeline-sa) via Workload Identity grants access to: GCS, Pub/Sub, BigQuery, Dataproc, Vertex AI
 ```
 
 Physical Characteristics:
-- Region: us-central1 (single-region for latency & cost)  
-- Network: Dedicated VPC with private access to BigQuery & restricted egress  
-- Compute Mix: Serverless (Cloud Run), Managed (Composer), Ephemeral (Dataproc), Container Orchestrated (GKE)  
-- Storage Tiers: GCS (raw/processed), BigQuery (staging/enriched)  
-- Security: Least-privilege service accounts, Workload Identity (no static keys), audit logs  
-- Resilience: Event-driven ingestion decoupled via Pub/Sub; enrichment isolated; dashboard stateless  
-- Scalability: Cloud Run concurrency, Dataproc autoscaling, GKE HPA (CPU)  
-- AI Integration: Vertex AI models accessed statelessly; embeddings refreshed on enrichment cycles  
+- Region: us-central1  
+- Single Service Account simplifies IAM; ensure scoped roles (Storage Object Viewer, Pub/Sub Subscriber, BigQuery Data Editor, Dataproc Worker, Vertex AI User)  
+- Event-driven ingestion decoupled via Pub/Sub  
+- Ephemeral Dataproc cluster lowers cost  
+- Streamlit on GKE for scalable presentation & chatbot integration  
+- Shared enriched dataset powers both analytics & RAG  
 
 ## 🔄 Data Flow Diagram
 
