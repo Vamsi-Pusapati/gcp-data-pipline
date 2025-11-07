@@ -5,39 +5,102 @@ import streamlit as st
 from google.cloud import bigquery
 from google.oauth2 import service_account
 import json
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "gcp-project-deliverable")
 DATASET = "medicaid_enriched"
 TABLE = "nadac_drugs_enriched"
 
 def _build_client():
-    # Priority order: SERVICE_ACCOUNT_SECRET (raw JSON or path) > GOOGLE_APPLICATION_CREDENTIALS path > local keys/secret.json > ADC
-    secret = os.getenv("SERVICE_ACCOUNT_SECRET")
-    if secret:
-        # If looks like JSON (starts with '{'), parse; else treat as filepath
-        if secret.strip().startswith('{'):
-            info = json.loads(secret)
-            creds = service_account.Credentials.from_service_account_info(info)
-            return bigquery.Client(project=info.get('project_id', PROJECT), credentials=creds)
-        elif os.path.isfile(secret):
-            creds = service_account.Credentials.from_service_account_file(secret)
-            return bigquery.Client(project=PROJECT, credentials=creds)
+    """
+    Build BigQuery client with authentication priority:
+    1. Workload Identity (GKE) - uses Application Default Credentials (ADC)
+    2. GOOGLE_APPLICATION_CREDENTIALS - path to service account key
+    3. SERVICE_ACCOUNT_SECRET - service account JSON (string or file path)
+    4. Local key file - for development only
+    """
+    
+    # Method 1: Try Workload Identity / ADC first (recommended for GKE)
+    # This works automatically in GKE when Workload Identity is configured
+    try:
+        # Don't specify credentials - let google.auth detect them automatically
+        client = bigquery.Client(project=PROJECT)
+        # Test the connection
+        client.query("SELECT 1").result()
+        logger.info("✓ Using Application Default Credentials (Workload Identity or gcloud auth)")
+        return client
+    except Exception as e:
+        logger.warning(f"ADC/Workload Identity not available: {e}")
+    
+    # Method 2: GOOGLE_APPLICATION_CREDENTIALS (standard GCP env var)
     key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     if key_path and os.path.isfile(key_path):
-        creds = service_account.Credentials.from_service_account_file(key_path)
-        return bigquery.Client(project=PROJECT, credentials=creds)
-    # Resolve service account key path: dashboard/service_account_secret/gcp-project-deliverable-c6b076e690d1.json
-    default_key_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "service_account_secret", "gcp-project-deliverable-c6b076e690d1.json"))
+        try:
+            creds = service_account.Credentials.from_service_account_file(key_path)
+            client = bigquery.Client(project=PROJECT, credentials=creds)
+            logger.info(f"✓ Using GOOGLE_APPLICATION_CREDENTIALS: {key_path}")
+            return client
+        except Exception as e:
+            logger.warning(f"Failed to use GOOGLE_APPLICATION_CREDENTIALS: {e}")
+    
+    # Method 3: SERVICE_ACCOUNT_SECRET (custom env var for flexibility)
+    secret = os.getenv("SERVICE_ACCOUNT_SECRET")
+    if secret:
+        try:
+            # Check if it's raw JSON
+            if secret.strip().startswith('{'):
+                info = json.loads(secret)
+                creds = service_account.Credentials.from_service_account_info(info)
+                client = bigquery.Client(project=info.get('project_id', PROJECT), credentials=creds)
+                logger.info("✓ Using SERVICE_ACCOUNT_SECRET (JSON string)")
+                return client
+            # Otherwise treat as file path
+            elif os.path.isfile(secret):
+                creds = service_account.Credentials.from_service_account_file(secret)
+                client = bigquery.Client(project=PROJECT, credentials=creds)
+                logger.info(f"✓ Using SERVICE_ACCOUNT_SECRET (file): {secret}")
+                return client
+        except Exception as e:
+            logger.warning(f"Failed to use SERVICE_ACCOUNT_SECRET: {e}")
+    
+    # Method 4: Local key file (development only - NOT for production)
+    default_key_path = os.path.join(
+        os.path.dirname(__file__), 
+        "service_account_secret", 
+        "gcp-project-deliverable-c6b076e690d1.json"
+    )
     if os.path.isfile(default_key_path):
-        creds = service_account.Credentials.from_service_account_file(default_key_path)
-        project_from_key = None
-        with open(default_key_path, 'r') as f:
-            project_from_key = json.load(f).get('project_id', PROJECT)
-        return bigquery.Client(project=project_from_key, credentials=creds)
-    # Fallback to default ADC
-    return bigquery.Client(project=PROJECT)
+        try:
+            creds = service_account.Credentials.from_service_account_file(default_key_path)
+            with open(default_key_path, 'r') as f:
+                project_from_key = json.load(f).get('project_id', PROJECT)
+            client = bigquery.Client(project=project_from_key, credentials=creds)
+            logger.warning(f"⚠ Using local key file (DEV ONLY): {default_key_path}")
+            return client
+        except Exception as e:
+            logger.warning(f"Failed to use local key file: {e}")
+    
+    # If all methods fail, raise error
+    raise RuntimeError(
+        "Failed to authenticate with BigQuery. Please ensure one of the following:\n"
+        "  - Running in GKE with Workload Identity configured\n"
+        "  - GOOGLE_APPLICATION_CREDENTIALS env var set\n"
+        "  - SERVICE_ACCOUNT_SECRET env var set\n"
+        "  - Local key file exists (development only)"
+    )
 
-client = _build_client()
+# Initialize BigQuery client
+try:
+    client = _build_client()
+    logger.info(f"✓ BigQuery client initialized for project: {PROJECT}")
+except Exception as e:
+    logger.error(f"✗ Failed to initialize BigQuery client: {e}")
+    st.error(f"Failed to connect to BigQuery: {e}")
+    st.stop()
 
 st.set_page_config(page_title="Medicaid Drug Dashboard", layout="wide")
 st.title("Medicaid Drug Dashboard")
