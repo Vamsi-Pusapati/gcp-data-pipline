@@ -1,0 +1,23 @@
+# Python dependencies for the drug data collection pipeline
+
+# HTTP requests and data handling
+requests==2.31.0
+pandas==2.0.3
+numpy==1.24.3
+
+# Google Cloud libraries
+google-cloud-storage==2.10.0
+google-cloud-bigquery==3.11.4
+
+# Data validation and processing
+jsonschema==4.19.0
+
+# Additional utilities
+python-dateutil==2.8.2
+
+# For data analysis and processing (optional)
+scipy==1.11.1
+
+# Development dependencies (optional)
+pytest==7.4.0
+black==23.7.0
