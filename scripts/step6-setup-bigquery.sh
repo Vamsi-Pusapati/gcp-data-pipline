@@ -191,7 +191,7 @@ cat > nadac_enriched_schema.json << 'EOF'
   {"name": "corresponding_generic_drug_effective_date", "type": "DATE", "mode": "NULLABLE", "description": "Effective date for corresponding generic NADAC"},
   {"name": "as_of_date", "type": "DATE", "mode": "NULLABLE", "description": "As of date for record"},
   {"name": "drug_name", "type": "STRING", "mode": "NULLABLE", "description": "Derived drug name (tokens excluding final strength/dosage/form)"},
-  {"name": "drug_strength", "type": "INTEGER", "mode": "NULLABLE", "description": "Parsed leading numeric portion of strength token"},
+  {"name": "drug_strength", "type": "STRING", "mode": "NULLABLE", "description": "Parsed leading numeric portion of strength token"},
   {"name": "drug_dosage", "type": "STRING", "mode": "NULLABLE", "description": "Derived dosage token (2nd from end)"},
   {"name": "drug_form", "type": "STRING", "mode": "NULLABLE", "description": "Derived form token (last token)"},
   {"name": "explanation_code_description", "type": "STRING", "mode": "NULLABLE", "description": "Mapped textual description(s) of explanation_code"},

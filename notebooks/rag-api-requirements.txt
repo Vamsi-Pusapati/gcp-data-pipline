@@ -1,0 +1,10 @@
+# Additional requirements for RAG API deployment
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.4.0
+python-multipart>=0.0.6
+
+# Optional: for production features
+redis>=5.0.0
+slowapi>=0.1.9
+prometheus-client>=0.18.0

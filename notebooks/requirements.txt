@@ -1,0 +1,30 @@
+# Requirements for Medicaid Drug RAG System
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+google-cloud-bigquery>=3.11.0
+google-cloud-aiplatform>=1.38.0
+vertexai>=1.38.0
+
+# Vector store and embeddings
+faiss-cpu>=1.7.4
+numpy>=1.24.0
+pandas>=2.0.0
+
+# LangChain (optional, for advanced RAG features)
+langchain>=0.1.0
+langchain-google-vertexai>=0.1.0
+
+# Jupyter environment
+jupyter>=1.0.0
+notebook>=7.0.0
+ipywidgets>=8.0.0
+
+# Visualization (optional)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.14.0
+
+# Utilities
+python-dotenv>=1.0.0
+tqdm>=4.65.0
