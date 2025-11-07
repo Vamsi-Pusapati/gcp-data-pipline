@@ -18,23 +18,23 @@ This project implements a complete end-to-end, automated data pipeline with AI c
 ```mermaid
 graph LR
     subgraph Extraction
-        ComposerExtract["Cloud Composer DAG\nmedicaid_data_dag"] -->|REST API Call| MedicaidAPI[(Medicaid API)]
-        ComposerExtract -->|Write JSON| GCSRaw[(GCS Bucket raw/)]
+        ComposerExtract["Cloud Composer DAG<br/>medicaid_data_dag"] -->|REST API Call| MedicaidAPI[(Medicaid API)]
+        ComposerExtract -->|Write JSON| GCSRaw[(GCS raw/ bucket)]
     end
-    subgraph EventIngestion[Event-Driven Ingestion]
+    subgraph EventIngestion["Event-Driven Ingestion"]
         GCSRaw -->|Object Finalize| PubSub[(Pub/Sub gcs-raw-files)]
-        PubSub --> CloudRunFn["Cloud Run Function\ngcs-to-bigquery"]
-        CloudRunFn -->|Validate + Load| BQStaging[(BigQuery Staging\nmedicaid_staging.nadac_drugs)]
+        PubSub --> CloudRunFn["Cloud Run Function<br/>gcs-to-bigquery"]
+        CloudRunFn -->|Validate + Load| BQStaging[(BigQuery Staging<br/>medicaid_staging.nadac_drugs)]
         CloudRunFn -->|Archive| GCSProcessed[(GCS processed/)]
     end
     subgraph Enrichment
-        EnrichDAG["Composer DAG\nmedicaid_enrichment_dag"] -->|Submit PySpark| DataprocJob[(Dataproc PySpark Job)]
-        BQStaging --> DataprocJob --> BQEnriched[(BigQuery Enriched\nmedicaid_enriched.nadac_drugs_enriched)]
+        EnrichDAG["Composer DAG<br/>medicaid_enrichment_dag"] -->|Submit PySpark| DataprocJob[(Dataproc PySpark Job)]
+        BQStaging --> DataprocJob --> BQEnriched[(BigQuery Enriched<br/>medicaid_enriched.nadac_drugs_enriched)]
     end
     subgraph Presentation
-        Streamlit["Streamlit Dashboard\nGKE (Artifact Registry Image)"] -->|SQL Queries| BQEnriched
+        Streamlit["Streamlit Dashboard<br/>GKE (Artifact Registry)"] -->|SQL Queries| BQEnriched
     end
-    subgraph RAG[Vertex AI RAG]
+    subgraph RAG["Vertex AI RAG"]
         BQEnriched -->|Embeddings| Embeddings["text-embedding-gecko"]
         Embeddings --> FAISS["FAISS Index"]
         FAISS -->|Top-K Context| Gemini["Gemini Pro LLM"]
@@ -53,27 +53,27 @@ BigQuery Enriched -> Embeddings -> FAISS -> Gemini -> Streamlit Chatbot
 
 ```mermaid
 graph TB
-    subgraph Phase1[Phase 1: Extraction]
-        P1_DAG[Extraction DAG] --> P1_API[(Medicaid API)]
+    subgraph Phase1["Phase 1: Extraction"]
+        P1_DAG["Extraction DAG"] --> P1_API[(Medicaid API)]
         P1_DAG -->|JSON| P1_GCS[(GCS raw/)]
     end
     P1_GCS -->|Finalize Event| EVT[(Pub/Sub gcs-raw-files)]
-    subgraph Phase2[Phase 2: Ingestion]
-        EVT --> FN[Cloud Run gcs-to-bigquery]
+    subgraph Phase2["Phase 2: Ingestion"]
+        EVT --> FN["Cloud Run<br/>gcs-to-bigquery"]
         FN -->|Rows| STAGE[(BigQuery Staging)]
         FN -->|Archive| PROC[(GCS processed/)]
     end
-    subgraph Phase3[Phase 3: Enrichment]
-        ENRICH_DAG[Enrichment DAG] --> SPARK[(Dataproc PySpark)]
+    subgraph Phase3["Phase 3: Enrichment"]
+        ENRICH_DAG["Enrichment DAG"] --> SPARK[(Dataproc PySpark)]
         STAGE --> SPARK --> ENRICHED[(BigQuery Enriched)]
     end
-    subgraph Phase4[Phase 4: Serving]
-        DASH[Streamlit Dashboard (GKE)] -->|Query| ENRICHED
+    subgraph Phase4["Phase 4: Serving"]
+        DASH["Streamlit Dashboard<br/>GKE"] -->|Query| ENRICHED
     end
-    subgraph Phase5[Phase 5: AI Assistant]
-        ENRICHED --> EMB[Embeddings gecko]
-        EMB --> IDX[FAISS Index]
-        IDX --> LLM[Gemini Pro]
+    subgraph Phase5["Phase 5: AI Assistant"]
+        ENRICHED --> EMB["Embeddings<br/>gecko"]
+        EMB --> IDX["FAISS Index"]
+        IDX --> LLM["Gemini Pro"]
         LLM --> DASH
     end
     USERS((End Users)) --> DASH
